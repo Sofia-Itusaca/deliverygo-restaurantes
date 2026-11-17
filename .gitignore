@@ -1,0 +1,11 @@
+bin/
+obj/
+.env
+*.user
+*.suo
+TestResults/
+__pycache__/
+*.py[cod]
+
+.env.*
+!.env.example

@@ -1,0 +1,8 @@
+bin
+obj
+tests
+.git
+.env*
+!.env.example
+__pycache__
+*.py[cod]

@@ -1,0 +1,61 @@
+name: restaurant-service
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: Explicit opt-in for deploying only the restaurants service
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Verify SPEC documents and CI contract
+        id: specs
+        run: python scripts/verify_specs.py
+      - name: Test SPEC verifier
+        id: spec_tests
+        run: python -m unittest discover -s scripts -p 'test_*.py' -v
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '10.0.x'}
+      - id: dependencies
+        run: dotnet restore
+      - id: build
+        run: dotnet build --no-restore -c Release
+      - id: tests
+        run: dotnet test tests/DeliveryGo.Restaurants.Tests.csproj -c Release
+      - uses: docker/build-push-action@v6
+        id: docker
+        with: {context: ., push: false, load: true, tags: deliverygo-restaurantes:ci}
+      - uses: aquasecurity/trivy-action@0.28.0
+        id: trivy
+        with: {image-ref: deliverygo-restaurantes:ci, format: table, exit-code: '1', severity: 'CRITICAL,HIGH'}
+      - name: Record CI evidence
+        if: always()
+        run: |
+          echo "## DeliveryGo Restaurants CI" >> "$GITHUB_STEP_SUMMARY"
+          echo "Run: $GITHUB_RUN_ID; commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "SPEC: ${{ steps.specs.outcome }}; verifier tests: ${{ steps.spec_tests.outcome }}; restore: ${{ steps.dependencies.outcome }}; build: ${{ steps.build.outcome }}; tests: ${{ steps.tests.outcome }}; Docker: ${{ steps.docker.outcome }}; Trivy: ${{ steps.trivy.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_production == true && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ENABLED == 'true' && vars.ECR_REPOSITORY == 'deliverygo-restaurantes' && vars.EKS_CLUSTER != ''
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions: {contents: read, id-token: write}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: {role-to-assume: '${{ secrets.AWS_ROLE_ARN }}', aws-region: us-east-2}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: login
+      - run: docker build -t ${{ steps.login.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }} . && docker push ${{ steps.login.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+      - run: sed -i "s|ACCOUNT.dkr.ecr.us-east-2.amazonaws.com/deliverygo-restaurantes:IMAGE_TAG|${{ steps.login.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}|g" k8s/deployment.yaml
+      - run: aws eks update-kubeconfig --name '${{ vars.EKS_CLUSTER }}' --region us-east-2 && kubectl apply -f k8s/namespace.yaml -f k8s/deployment.yaml -n deliverygo && kubectl rollout status deployment/deliverygo-restaurantes -n deliverygo --timeout=180s
