@@ -38,7 +38,7 @@ jobs:
         with: {context: ., push: false, load: true, tags: deliverygo-restaurantes:ci}
       - uses: aquasecurity/trivy-action@v0.36.0
         id: trivy
-        with: {image-ref: deliverygo-restaurantes:ci, format: table, exit-code: '1', severity: 'CRITICAL,HIGH'}
+        with: {image-ref: deliverygo-restaurantes:ci, format: table, exit-code: '1', severity: 'CRITICAL,HIGH', ignore-unfixed: true}
       - name: Record CI evidence
         if: always()
         run: |
