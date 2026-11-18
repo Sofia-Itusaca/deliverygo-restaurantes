@@ -1,8 +1,8 @@
 # SPEC-10 — CI/CD y GitHub Actions
 
-- **Versión:** 1.1.0
-- **Estado:** vigente; describe la implementación local al 2026-11-17
-- **Historial:** 1.1.0 — 2026-11-17 — SPEC gate en CI, resumen de evidencias y despliegue manual opt-in limitado al ECR/Deployment propio; 1.0.0 — primera versión.
+- **Versión:** 1.4.0
+- **Estado:** vigente; actualizada al 2026-11-17
+- **Historial:** 1.4.0 — 2026-11-17 — matriz de alternativas para GHSA-fc5q-39xc-vjpf; el fork hash-pinned mitiga solo los patrones probados, sin resolver los cinco HIGH del audit Node 22/npm 10.9.9; 1.3.0 — 2026-11-17 — prueba de regresión ReDoS y discrepancia de auditoría Node 22/Node 24; 1.2.0 — 2026-11-17 — auditorías de dependencias bloqueantes, Trivy estricto y gates Hadolint/Kubeconform; 1.1.0 — 2026-11-17 — SPEC gate, resumen de evidencias y despliegue manual opt-in; 1.0.0 — primera versión.
 
 ## Objetivo
 
@@ -14,7 +14,7 @@ Cada repo contiene `.github/workflows/ci-cd.yml`; CI y verificación estructural
 
 ## Descripción técnica
 
-Frontend: Python 3.12 valida SPEC-01..13 y el contrato CI/deploy; npm ci, Vitest, npm audit, build y build/Trivy de imagen. Restaurant: el mismo gate de SPEC, setup .NET 10, restore, build, xUnit, imagen y Trivy. Menu: el mismo gate de SPEC, pip install, compileall, unittest, Ruff para errores críticos, imagen y Trivy. Resumen de GitHub Actions registra run, commit y resultado de gates. CD solo tras dispatch manual con `deploy_production=true`, en main, `AWS_DEPLOY_ENABLED=true`, EKS y el `ECR_REPOSITORY` exacto del componente. Mapeo de repositorios/destinos: frontend `deliverygo-frontend` → `Deployment/deliverygo-frontend`; restaurantes `deliverygo-restaurantes` → `Deployment/deliverygo-restaurantes`; menús `deliverygo-menus` → `Deployment/deliverygo-menus`. Asume rol con OIDC, aplica solo los recursos locales del componente (Deployment, Service y ConfigMap) y espera el rollout de su Deployment.
+Frontend: Python 3.12 valida SPEC-01..13 y contrato CI/deploy; npm ci, Vitest, auditorías de producción y completa bloqueantes, build, Hadolint, Kubeconform estricto, imagen y Trivy CRITICAL/HIGH exit 1 sin ignorar findings no corregibles. Un test de regresión acotado cubre `+(*a)`, `+(*)`, `*(*a)` y `+(a*b)`. El override hash-pinned comunitario mitiga los patrones probados, pero no es un release upstream corregido: se clasifican cero findings corregidos, una mitigación de casos específicos y cinco HIGH pendientes. Node 22/npm 10.9.9 reporta cinco HIGH; Node 24/npm 11.19.0 devuelve cero con el mismo lockfile, discrepancia que no se toma como resolución. La decisión transversal del Harness está documentada en `docs/picomatch-redos-decision.md` en la raíz del workspace; no se copia a los repositorios independientes. Restaurantes: SPEC gate, .NET 10 restore/build/xUnit, auditoría NuGet transitiva que falla ante HIGH/CRITICAL o severidad no clasificada, Hadolint, Kubeconform estricto, imagen y Trivy estricto. Menús: SPEC gate, pip install, pip-audit -r requirements.txt bloqueante, compileall, unittest, Ruff para errores críticos, Hadolint, Kubeconform estricto, imagen y Trivy estricto. Los tres Trivy gates usan CRITICAL/HIGH, exit 1 y no filtran findings no corregibles. Las auditorías de dependencias se ejecutan después de las verificaciones de build, imagen y Trivy, y corren con condición always cuando la restauración de dependencias pasó, para que un audit finding no omita tests, build ni escaneos. Los resúmenes Actions registran run, commit y gates. CD continúa limitado al dispatch manual, main, opt-in explícito, AWS_DEPLOY_ENABLED y ECR propio exacto; repositorios permitidos: deliverygo-frontend, deliverygo-restaurantes y deliverygo-menus. Aplica sólo recursos del componente mediante OIDC.
 
 ## Requisitos relacionados
 

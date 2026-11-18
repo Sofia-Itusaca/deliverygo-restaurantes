@@ -33,18 +33,28 @@ jobs:
         run: dotnet build --no-restore -c Release
       - id: tests
         run: dotnet test tests/DeliveryGo.Restaurants.Tests.csproj -c Release
+      - name: Lint Dockerfile (Hadolint)
+        id: hadolint
+        run: docker run --rm -v "$PWD:/src:ro" hadolint/hadolint:v2.15.1-alpine /bin/hadolint /src/Dockerfile
+      - name: Validate Kubernetes manifests (Kubeconform)
+        id: kubeconform
+        run: docker run --rm -v "$PWD:/src:ro" ghcr.io/yannh/kubeconform:v0.8.0-alpine -strict -summary /src/k8s/deployment.yaml /src/k8s/namespace.yaml
       - uses: docker/build-push-action@v6
         id: docker
         with: {context: ., push: false, load: true, tags: deliverygo-restaurantes:ci}
       - uses: aquasecurity/trivy-action@v0.36.0
         id: trivy
-        with: {image-ref: deliverygo-restaurantes:ci, format: table, exit-code: '1', severity: 'CRITICAL,HIGH', ignore-unfixed: true}
+        with: {image-ref: deliverygo-restaurantes:ci, format: table, exit-code: '1', severity: 'CRITICAL,HIGH'}
+      - name: Audit NuGet dependencies (including transitive packages)
+        id: nuget_audit
+        if: always() && steps.dependencies.outcome == 'success'
+        run: dotnet list package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/nuget-vulnerabilities.json" && python scripts/check_nuget_vulnerabilities.py "$RUNNER_TEMP/nuget-vulnerabilities.json"
       - name: Record CI evidence
         if: always()
         run: |
           echo "## DeliveryGo Restaurants CI" >> "$GITHUB_STEP_SUMMARY"
           echo "Run: $GITHUB_RUN_ID; commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
-          echo "SPEC: ${{ steps.specs.outcome }}; verifier tests: ${{ steps.spec_tests.outcome }}; restore: ${{ steps.dependencies.outcome }}; build: ${{ steps.build.outcome }}; tests: ${{ steps.tests.outcome }}; Docker: ${{ steps.docker.outcome }}; Trivy: ${{ steps.trivy.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "SPEC: ${{ steps.specs.outcome }}; verifier tests: ${{ steps.spec_tests.outcome }}; restore: ${{ steps.dependencies.outcome }}; NuGet audit: ${{ steps.nuget_audit.outcome }}; build: ${{ steps.build.outcome }}; tests: ${{ steps.tests.outcome }}; Hadolint: ${{ steps.hadolint.outcome }}; Kubeconform: ${{ steps.kubeconform.outcome }}; Docker: ${{ steps.docker.outcome }}; Trivy: ${{ steps.trivy.outcome }}" >> "$GITHUB_STEP_SUMMARY"
   deploy:
     if: github.event_name == 'workflow_dispatch' && inputs.deploy_production == true && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ENABLED == 'true' && vars.ECR_REPOSITORY == 'deliverygo-restaurantes' && vars.EKS_CLUSTER != ''
     needs: ci
